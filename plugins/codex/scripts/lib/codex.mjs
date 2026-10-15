@@ -65,7 +65,7 @@ function buildThreadParams(cwd, options = {}) {
     cwd,
     model: options.model ?? null,
     approvalPolicy: options.approvalPolicy ?? "never",
-    sandbox: options.sandbox ?? "read-only",
+    sandbox: options.sandbox ?? null,
     serviceName: SERVICE_NAME,
     ephemeral: options.ephemeral ?? true
   };
@@ -78,7 +78,7 @@ function buildResumeParams(threadId, cwd, options = {}) {
     cwd,
     model: options.model ?? null,
     approvalPolicy: options.approvalPolicy ?? "never",
-    sandbox: options.sandbox ?? "read-only"
+    sandbox: options.sandbox ?? null
   };
 }
 
@@ -755,6 +755,22 @@ function buildResultStatus(turnState) {
   return turnState.finalTurn?.status === "completed" ? 0 : 1;
 }
 
+// Codex reports a broken sandbox as an ordinary failed command and still completes the turn,
+// so without this check a run where nothing could execute looks successful.
+export function findSandboxStartupError(commandExecutions = []) {
+  const failure = commandExecutions.find(
+    (item) => item?.status === "failed" && /Failed to create unified exec process/i.test(item.aggregatedOutput ?? "")
+  );
+  if (!failure) {
+    return null;
+  }
+  return {
+    message:
+      `Codex could not start commands in its sandbox: ${failure.aggregatedOutput.trim()}\n` +
+      "Retry with `--sandbox danger-full-access`, or fix the sandbox in your Codex config."
+  };
+}
+
 const BUILTIN_PROVIDER_LABELS = new Map([
   ["openai", "OpenAI"],
   ["ollama", "Ollama"],
@@ -977,6 +993,16 @@ export async function interruptAppServerTurn(cwd, { threadId, turnId }) {
     };
   }
 
+  // Only a running broker can own someone else's turn; a freshly spawned app-server never does.
+  if (!process.env[BROKER_ENDPOINT_ENV] && !loadBrokerSession(cwd)?.endpoint) {
+    return {
+      attempted: false,
+      interrupted: false,
+      transport: null,
+      detail: "no shared app-server is running"
+    };
+  }
+
   let client = null;
   try {
     client = await CodexAppServerClient.connect(cwd, { reuseExistingBroker: true });
@@ -1009,7 +1035,7 @@ export async function runAppServerReview(cwd, options = {}) {
     emitProgress(options.onProgress, "Starting Codex review thread.", "starting");
     const thread = await startThread(client, cwd, {
       model: options.model,
-      sandbox: "read-only",
+      sandbox: options.sandbox ?? null,
       ephemeral: true,
       threadName: options.threadName
     });
@@ -1098,7 +1124,10 @@ export async function runAppServerTurn(cwd, options = {}) {
     throw new Error("Codex CLI is not installed or is missing required runtime support. Install it with `npm install -g @openai/codex`, then rerun `/codex:setup`.");
   }
 
-  return withAppServer(cwd, async (client) => {
+  // A private app-server keeps Codex and the commands it runs inside this process tree,
+  // so stopping this process (TaskStop, /codex:cancel) stops the whole run.
+  const withServer = options.directAppServer ? withDirectAppServer : withAppServer;
+  return withServer(cwd, async (client) => {
     let threadId;
 
     if (options.resumeThreadId) {
@@ -1142,15 +1171,16 @@ export async function runAppServerTurn(cwd, options = {}) {
         }),
       { onProgress: options.onProgress }
     );
+    const sandboxError = findSandboxStartupError(turnState.commandExecutions);
 
     return {
-      status: buildResultStatus(turnState),
+      status: sandboxError ? 1 : buildResultStatus(turnState),
       threadId,
       turnId: turnState.turnId,
       finalMessage: turnState.lastAgentMessage,
       reasoningSummary: turnState.reasoningSummary,
       turn: turnState.finalTurn,
-      error: turnState.error,
+      error: turnState.error ?? sandboxError,
       stderr: cleanCodexStderr(client.stderr),
       fileChanges: turnState.fileChanges,
       touchedFiles: collectTouchedFiles(turnState.fileChanges),

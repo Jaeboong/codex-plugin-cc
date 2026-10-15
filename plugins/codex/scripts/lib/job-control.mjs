@@ -1,12 +1,23 @@
 import fs from "node:fs";
 
 import { getSessionRuntimeStatus } from "./codex.mjs";
-import { getConfig, listJobs, readJobFile, resolveJobFile } from "./state.mjs";
+import { isProcessAlive } from "./process.mjs";
+import { getConfig, listJobs as listStoredJobs, readJobFile, resolveJobFile } from "./state.mjs";
 import { SESSION_ID_ENV } from "./tracked-jobs.mjs";
 import { resolveWorkspaceRoot } from "./workspace.mjs";
 
 export const DEFAULT_MAX_STATUS_JOBS = 8;
 export const DEFAULT_MAX_PROGRESS_LINES = 4;
+
+// A job whose process died without recording a result (TaskStop, crash, reboot) would
+// otherwise show as running forever.
+function listJobs(workspaceRoot) {
+  return listStoredJobs(workspaceRoot).map((job) =>
+    (job.status === "queued" || job.status === "running") && Number.isFinite(job.pid) && !isProcessAlive(job.pid)
+      ? { ...job, status: "failed", phase: "stopped", pid: null, errorMessage: "Process exited without recording a result." }
+      : job
+  );
+}
 
 export function sortJobsNewestFirst(jobs) {
   return [...jobs].sort((left, right) => String(right.updatedAt ?? "").localeCompare(String(left.updatedAt ?? "")));

@@ -314,8 +314,10 @@ export function renderNativeReviewResult(result, meta) {
 
 export function renderTaskResult(parsedResult, meta) {
   const rawOutput = typeof parsedResult?.rawOutput === "string" ? parsedResult.rawOutput : "";
+  const errorMessage = String(parsedResult?.errorMessage ?? "").trim();
   if (rawOutput) {
-    return rawOutput.endsWith("\n") ? rawOutput : `${rawOutput}\n`;
+    const output = rawOutput.endsWith("\n") ? rawOutput : `${rawOutput}\n`;
+    return errorMessage ? `${output}\n[codex] ${errorMessage}\n` : output;
   }
 
   const message = String(parsedResult?.failureMessage ?? "").trim() || "Codex did not return a final message.";
@@ -445,11 +447,13 @@ export function renderStoredJobResult(job, storedJob) {
   return `${lines.join("\n").trimEnd()}\n`;
 }
 
-export function renderCancelReport(job) {
+export function renderCancelReport(job, termination = {}) {
   const lines = [
     "# Codex Cancel",
     "",
-    `Cancelled ${job.id}.`,
+    termination.processStillRunning
+      ? `Cancel requested for ${job.id}, but process ${termination.pid} is still running.${termination.terminateError ? ` ${termination.terminateError}` : ""}`
+      : `Cancelled ${job.id}.${Number.isFinite(termination.pid) ? ` Process ${termination.pid} and its children are stopped.` : ""}`,
     ""
   ];
 

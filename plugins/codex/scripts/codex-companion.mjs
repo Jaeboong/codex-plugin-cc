@@ -24,7 +24,7 @@ import {
 import { resolveClaudeSessionPath } from "./lib/claude-session-transfer.mjs";
 import { readStdinIfPiped } from "./lib/fs.mjs";
 import { collectReviewContext, ensureGitRepository, resolveReviewTarget } from "./lib/git.mjs";
-import { binaryAvailable, terminateProcessTree } from "./lib/process.mjs";
+import { binaryAvailable, isProcessAlive, terminateProcessTree } from "./lib/process.mjs";
 import { loadPromptTemplate, interpolateTemplate } from "./lib/prompts.mjs";
 import {
   generateJobId,
@@ -69,6 +69,7 @@ const REVIEW_SCHEMA = path.join(ROOT_DIR, "schemas", "review-output.schema.json"
 const DEFAULT_STATUS_WAIT_TIMEOUT_MS = 240000;
 const DEFAULT_STATUS_POLL_INTERVAL_MS = 2000;
 const VALID_REASONING_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh"]);
+const VALID_SANDBOX_MODES = new Set(["read-only", "workspace-write", "danger-full-access"]);
 const MODEL_ALIASES = new Map([["spark", "gpt-5.3-codex-spark"]]);
 const STOP_REVIEW_TASK_MARKER = "Run a stop-gate review of the previous Claude turn.";
 
@@ -79,7 +80,7 @@ function printUsage() {
       "  node scripts/codex-companion.mjs setup [--enable-review-gate|--disable-review-gate] [--json]",
       "  node scripts/codex-companion.mjs review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>]",
       "  node scripts/codex-companion.mjs adversarial-review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>] [focus text]",
-      "  node scripts/codex-companion.mjs task [--background] [--write] [--resume-last|--resume|--fresh] [--model <model|spark>] [--effort <none|minimal|low|medium|high|xhigh>] [prompt]",
+      "  node scripts/codex-companion.mjs task [--background] [--write] [--sandbox <read-only|workspace-write|danger-full-access>] [--resume-last|--resume|--fresh] [--model <model|spark>] [--effort <none|minimal|low|medium|high|xhigh>] [prompt]",
       "  node scripts/codex-companion.mjs transfer [--source <claude-jsonl>] [--json]",
       "  node scripts/codex-companion.mjs status [job-id] [--all] [--json]",
       "  node scripts/codex-companion.mjs result [job-id] [--json]",
@@ -123,6 +124,18 @@ function normalizeReasoningEffort(effort) {
     throw new Error(
       `Unsupported reasoning effort "${effort}". Use one of: none, minimal, low, medium, high, xhigh.`
     );
+  }
+  return normalized;
+}
+
+// Unset means Codex uses the sandbox from the user's own config.
+function normalizeSandboxMode(sandbox) {
+  if (sandbox == null || !String(sandbox).trim()) {
+    return null;
+  }
+  const normalized = String(sandbox).trim().toLowerCase();
+  if (!VALID_SANDBOX_MODES.has(normalized)) {
+    throw new Error(`Unsupported sandbox "${sandbox}". Use one of: read-only, workspace-write, danger-full-access.`);
   }
   return normalized;
 }
@@ -411,7 +424,6 @@ async function executeReviewRun(request) {
   const result = await runAppServerTurn(context.repoRoot, {
     prompt,
     model: request.model,
-    sandbox: "read-only",
     outputSchema: readOutputSchema(REVIEW_SCHEMA),
     onProgress: request.onProgress
   });
@@ -488,7 +500,8 @@ async function executeTaskRun(request) {
     defaultPrompt: resumeThreadId ? DEFAULT_CONTINUE_PROMPT : "",
     model: request.model,
     effort: request.effort,
-    sandbox: request.write ? "workspace-write" : "read-only",
+    sandbox: request.sandbox ?? null,
+    directAppServer: true,
     onProgress: request.onProgress,
     persistThread: true,
     threadName: resumeThreadId ? null : buildPersistentTaskThreadName(request.prompt || DEFAULT_CONTINUE_PROMPT)
@@ -500,6 +513,7 @@ async function executeTaskRun(request) {
     {
       rawOutput,
       failureMessage,
+      errorMessage: result.error?.message,
       reasoningSummary: result.reasoningSummary
     },
     {
@@ -601,11 +615,12 @@ function buildTaskJob(workspaceRoot, taskMetadata, write) {
   });
 }
 
-function buildTaskRequest({ cwd, model, effort, prompt, write, resumeLast, jobId }) {
+function buildTaskRequest({ cwd, model, effort, sandbox, prompt, write, resumeLast, jobId }) {
   return {
     cwd,
     model,
     effort,
+    sandbox,
     prompt,
     write,
     resumeLast,
@@ -761,7 +776,7 @@ async function handleReview(argv) {
 
 async function handleTask(argv) {
   const { options, positionals } = parseCommandInput(argv, {
-    valueOptions: ["model", "effort", "cwd", "prompt-file"],
+    valueOptions: ["model", "effort", "sandbox", "cwd", "prompt-file"],
     booleanOptions: ["json", "write", "resume-last", "resume", "fresh", "background"],
     aliasMap: {
       m: "model"
@@ -772,6 +787,7 @@ async function handleTask(argv) {
   const workspaceRoot = resolveCommandWorkspace(options);
   const model = normalizeRequestedModel(options.model);
   const effort = normalizeReasoningEffort(options.effort);
+  const sandbox = normalizeSandboxMode(options.sandbox);
   const prompt = readTaskPrompt(cwd, options, positionals);
 
   const resumeLast = Boolean(options["resume-last"] || options.resume);
@@ -794,6 +810,7 @@ async function handleTask(argv) {
       cwd,
       model,
       effort,
+      sandbox,
       prompt,
       write,
       resumeLast,
@@ -812,6 +829,7 @@ async function handleTask(argv) {
         cwd,
         model,
         effort,
+        sandbox,
         prompt,
         write,
         resumeLast,
@@ -983,8 +1001,20 @@ async function handleCancel(argv) {
     );
   }
 
-  terminateProcessTree(job.pid ?? Number.NaN);
-  appendLogLine(job.logFile, "Cancelled by user.");
+  let terminateError = null;
+  try {
+    terminateProcessTree(job.pid ?? Number.NaN);
+  } catch (error) {
+    terminateError = error instanceof Error ? error.message : String(error);
+  }
+  // Report what is actually still alive instead of assuming the kill worked.
+  const processStillRunning = isProcessAlive(job.pid ?? Number.NaN);
+  appendLogLine(
+    job.logFile,
+    processStillRunning
+      ? `Cancel requested, but process ${job.pid} is still running${terminateError ? `: ${terminateError}` : "."}`
+      : "Cancelled by user."
+  );
 
   const completedAt = nowIso();
   const nextJob = {
@@ -1015,10 +1045,16 @@ async function handleCancel(argv) {
     status: "cancelled",
     title: job.title,
     turnInterruptAttempted: interrupt.attempted,
-    turnInterrupted: interrupt.interrupted
+    turnInterrupted: interrupt.interrupted,
+    pid: job.pid ?? null,
+    processStillRunning,
+    terminateError
   };
 
-  outputCommandResult(payload, renderCancelReport(nextJob), options.json);
+  outputCommandResult(payload, renderCancelReport(nextJob, { pid: job.pid, processStillRunning, terminateError }), options.json);
+  if (processStillRunning) {
+    process.exitCode = 1;
+  }
 }
 
 async function main() {

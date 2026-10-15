@@ -24,13 +24,13 @@ they already have.
 Add the marketplace in Claude Code:
 
 ```bash
-/plugin marketplace add openai/codex-plugin-cc
+/plugin marketplace add Jaeboong/codex-plugin-cc
 ```
 
 Install the plugin:
 
 ```bash
-/plugin install codex@openai-codex
+/plugin install codex@jaeboong-codex
 ```
 
 Reload plugins:
@@ -62,7 +62,6 @@ If Codex is installed but not logged in yet, run:
 After install, you should see:
 
 - the slash commands listed below
-- the `codex:codex-rescue` subagent in `/agents`
 
 One simple first run is:
 
@@ -125,7 +124,7 @@ This command is read-only. It does not fix code.
 
 ### `/codex:rescue`
 
-Hands a task to Codex through the `codex:codex-rescue` subagent.
+Hands a task to Codex as a Claude Code background task. Claude keeps working, gets notified with Codex's response when Codex finishes its turn, and can stop the run at any time with `TaskStop` (which stops Codex and every command it started).
 
 Use it when you want Codex to:
 
@@ -134,10 +133,7 @@ Use it when you want Codex to:
 - continue a previous Codex task
 - take a faster or cheaper pass with a smaller model
 
-> [!NOTE]
-> Depending on the task and the model you choose these tasks might take a long time and it's generally recommended to force the task to be in the background or move the agent to the background.
-
-It supports `--background`, `--wait`, `--resume`, and `--fresh`. If you omit `--resume` and `--fresh`, the plugin can offer to continue the latest rescue thread for this repo.
+It always runs in the background. It supports `--resume`, `--fresh`, `--read-only`, and `--sandbox <read-only|workspace-write|danger-full-access>`. Without `--sandbox`, Codex uses the sandbox from your Codex config. If you omit `--resume` and `--fresh`, the plugin can offer to continue the latest rescue thread for this repo.
 
 Examples:
 
@@ -147,7 +143,7 @@ Examples:
 /codex:rescue --resume apply the top fix from the last run
 /codex:rescue --model gpt-5.4-mini --effort medium investigate the flaky integration test
 /codex:rescue --model spark fix the issue quickly
-/codex:rescue --background investigate the regression
+/codex:rescue --sandbox danger-full-access fix the build script
 ```
 
 You can also just ask for a task to be delegated to Codex:
@@ -254,7 +250,7 @@ When the review gate is enabled, the plugin uses a `Stop` hook to run a targeted
 
 ```bash
 /codex:adversarial-review --background
-/codex:rescue --background investigate the flaky test
+/codex:rescue investigate the flaky test
 ```
 
 Then check in with:

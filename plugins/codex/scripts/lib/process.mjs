@@ -64,9 +64,11 @@ export function terminateProcessTree(pid, options = {}) {
   const killImpl = options.killImpl ?? process.kill.bind(process);
 
   if (platform === "win32") {
+    // No shell: under Git Bash (SHELL set), MSYS rewrites "/PID" into a path and taskkill fails.
     const result = runCommandImpl("taskkill", ["/PID", String(pid), "/T", "/F"], {
       cwd: options.cwd,
-      env: options.env
+      env: options.env,
+      shell: false
     });
 
     if (!result.error && result.status === 0) {
@@ -132,4 +134,16 @@ export function formatCommandFailure(result) {
     parts.push(stdout);
   }
   return parts.join(": ");
+}
+
+export function isProcessAlive(pid) {
+  if (!Number.isFinite(pid)) {
+    return false;
+  }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
 }
