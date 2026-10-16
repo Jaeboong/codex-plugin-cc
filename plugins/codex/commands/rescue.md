@@ -1,6 +1,6 @@
 ---
 description: Delegate investigation, an explicit fix request, or follow-up rescue work to Codex as a Claude background task
-argument-hint: "[--resume|--fresh] [--read-only] [--sandbox <read-only|workspace-write|danger-full-access>] [--model <model|spark>] [--effort <none|minimal|low|medium|high|xhigh>] [what Codex should investigate, solve, or continue]"
+argument-hint: "[--resume|--fresh] [--read-only] [--sandbox <read-only|workspace-write|danger-full-access>] [--model <model|spark>] [--effort <none|minimal|low|medium|high|xhigh>] [--output <file>] [--no-preamble] [what Codex should investigate, solve, or continue]"
 allowed-tools: Bash(node:*), AskUserQuestion
 ---
 
@@ -31,7 +31,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" task-resume-candidate -
 
 Building the command:
 - Add `--write` unless the user asks for read-only behavior (`--read-only`) or only wants review, diagnosis, or research without edits. In that case leave out `--write` and start the task text with "Do not modify any files." (the sandbox follows the user's Codex config, so this is what keeps the run read-only).
-- Pass `--sandbox`, `--model`, and `--effort` through only when the user gave them. Map `spark` to `gpt-5.3-codex-spark`. Without `--sandbox`, Codex uses the sandbox from the user's Codex config.
+- Pass `--sandbox`, `--model`, `--effort`, `--output <file>`, and `--no-preamble` through only when the user gave them. Map `spark` to `gpt-5.3-codex-spark`. Without `--sandbox`, Codex uses the sandbox from the user's Codex config.
 - Strip `--resume`, `--fresh`, `--read-only`, and the flags above from the task text. Keep the rest of the user's text as-is.
 - Always send the task text on stdin with a quoted heredoc so quoting cannot break it and the process never waits on an open stdin.
 

@@ -763,6 +763,53 @@ test("task --fresh is treated as routing control and does not leak into the prom
   assert.equal(fakeState.lastTurnStart.prompt, "diagnose the flaky test");
 });
 
+test("task prepends the repo .codex-delegate.md unless --no-preamble or resuming", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  const statePath = path.join(binDir, "fake-codex-state.json");
+  installFakeCodex(binDir);
+  initGitRepo(repo);
+  fs.writeFileSync(path.join(repo, ".codex-delegate.md"), "Repo rule: answer in Korean.\n");
+  fs.mkdirSync(path.join(repo, "sub"));
+  run("git", ["add", "."], { cwd: repo });
+  run("git", ["commit", "-m", "init"], { cwd: repo });
+  const lastPrompt = () => JSON.parse(fs.readFileSync(statePath, "utf8")).lastTurnStart.prompt;
+
+  // Run from a subdirectory: the preamble is read from the repo root.
+  let result = run("node", [SCRIPT, "task", "fix the bug"], { cwd: path.join(repo, "sub"), env: buildEnv(binDir) });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(lastPrompt(), "Repo rule: answer in Korean.\n\nfix the bug");
+
+  result = run("node", [SCRIPT, "task", "--no-preamble", "fix the bug"], { cwd: repo, env: buildEnv(binDir) });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(lastPrompt(), "fix the bug");
+
+  result = run("node", [SCRIPT, "task", "--resume-last", "follow up"], { cwd: repo, env: buildEnv(binDir) });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(lastPrompt(), "follow up");
+});
+
+test("task --output writes only the final Codex answer to the given file", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  installFakeCodex(binDir);
+  initGitRepo(repo);
+  fs.writeFileSync(path.join(repo, "README.md"), "hello\n");
+  run("git", ["add", "README.md"], { cwd: repo });
+  run("git", ["commit", "-m", "init"], { cwd: repo });
+
+  const result = run("node", [SCRIPT, "task", "--output", "out/answer.md", "diagnose the failing test"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(
+    fs.readFileSync(path.join(repo, "out", "answer.md"), "utf8"),
+    "Handled the requested task.\nTask prompt accepted."
+  );
+});
+
 test("task forwards model selection and reasoning effort to app-server turn/start", () => {
   const repo = makeTempDir();
   const binDir = makeTempDir();

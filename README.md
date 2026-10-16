@@ -135,6 +135,8 @@ Use it when you want Codex to:
 
 It always runs in the background. It supports `--resume`, `--fresh`, `--read-only`, and `--sandbox <read-only|workspace-write|danger-full-access>`. Without `--sandbox`, Codex uses the sandbox from your Codex config. If you omit `--resume` and `--fresh`, the plugin can offer to continue the latest rescue thread for this repo.
 
+If your repository root has a `.codex-delegate.md` file, its contents are prepended to every new task prompt (`--no-preamble` skips it). `--output <file>` additionally writes only Codex's final answer to that file, like `codex exec -o`.
+
 Examples:
 
 ```bash
@@ -144,6 +146,7 @@ Examples:
 /codex:rescue --model gpt-5.4-mini --effort medium investigate the flaky integration test
 /codex:rescue --model spark fix the issue quickly
 /codex:rescue --sandbox danger-full-access fix the build script
+/codex:rescue --output .codex/out/fix.md fix the failing test
 ```
 
 You can also just ask for a task to be delegated to Codex:

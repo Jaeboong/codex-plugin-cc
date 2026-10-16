@@ -80,7 +80,7 @@ function printUsage() {
       "  node scripts/codex-companion.mjs setup [--enable-review-gate|--disable-review-gate] [--json]",
       "  node scripts/codex-companion.mjs review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>]",
       "  node scripts/codex-companion.mjs adversarial-review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>] [focus text]",
-      "  node scripts/codex-companion.mjs task [--background] [--write] [--sandbox <read-only|workspace-write|danger-full-access>] [--resume-last|--resume|--fresh] [--model <model|spark>] [--effort <none|minimal|low|medium|high|xhigh>] [prompt]",
+      "  node scripts/codex-companion.mjs task [--background] [--write] [--sandbox <read-only|workspace-write|danger-full-access>] [--resume-last|--resume|--fresh] [--model <model|spark>] [--effort <none|minimal|low|medium|high|xhigh>] [--output <file>] [--no-preamble] [prompt]",
       "  node scripts/codex-companion.mjs transfer [--source <claude-jsonl>] [--json]",
       "  node scripts/codex-companion.mjs status [job-id] [--all] [--json]",
       "  node scripts/codex-companion.mjs result [job-id] [--json]",
@@ -508,6 +508,11 @@ async function executeTaskRun(request) {
   });
 
   const rawOutput = typeof result.finalMessage === "string" ? result.finalMessage : "";
+  if (request.outputFile) {
+    // Like `codex exec -o`: only the final answer, written even when empty so a stale file never survives.
+    fs.mkdirSync(path.dirname(request.outputFile), { recursive: true });
+    fs.writeFileSync(request.outputFile, rawOutput, "utf8");
+  }
   const failureMessage = result.error?.message ?? result.stderr ?? "";
   const rendered = renderTaskResult(
     {
@@ -615,7 +620,7 @@ function buildTaskJob(workspaceRoot, taskMetadata, write) {
   });
 }
 
-function buildTaskRequest({ cwd, model, effort, sandbox, prompt, write, resumeLast, jobId }) {
+function buildTaskRequest({ cwd, model, effort, sandbox, prompt, write, resumeLast, outputFile, jobId }) {
   return {
     cwd,
     model,
@@ -624,8 +629,24 @@ function buildTaskRequest({ cwd, model, effort, sandbox, prompt, write, resumeLa
     prompt,
     write,
     resumeLast,
+    outputFile,
     jobId
   };
+}
+
+const DELEGATE_PREAMBLE_FILE = ".codex-delegate.md";
+
+// Repo-wide delegation rules live in the target repo, never in the plugin.
+function withDelegatePreamble(workspaceRoot, prompt) {
+  if (!prompt) {
+    return prompt;
+  }
+  const preamblePath = path.join(workspaceRoot, DELEGATE_PREAMBLE_FILE);
+  if (!fs.existsSync(preamblePath)) {
+    return prompt;
+  }
+  const preamble = fs.readFileSync(preamblePath, "utf8").trim();
+  return preamble ? `${preamble}\n\n${prompt}` : prompt;
 }
 
 function renderTransferResult(payload) {
@@ -776,8 +797,8 @@ async function handleReview(argv) {
 
 async function handleTask(argv) {
   const { options, positionals } = parseCommandInput(argv, {
-    valueOptions: ["model", "effort", "sandbox", "cwd", "prompt-file"],
-    booleanOptions: ["json", "write", "resume-last", "resume", "fresh", "background"],
+    valueOptions: ["model", "effort", "sandbox", "cwd", "prompt-file", "output"],
+    booleanOptions: ["json", "write", "resume-last", "resume", "fresh", "background", "no-preamble"],
     aliasMap: {
       m: "model"
     }
@@ -788,16 +809,19 @@ async function handleTask(argv) {
   const model = normalizeRequestedModel(options.model);
   const effort = normalizeReasoningEffort(options.effort);
   const sandbox = normalizeSandboxMode(options.sandbox);
-  const prompt = readTaskPrompt(cwd, options, positionals);
+  const userPrompt = readTaskPrompt(cwd, options, positionals);
+  const outputFile = options.output ? path.resolve(cwd, options.output) : null;
 
   const resumeLast = Boolean(options["resume-last"] || options.resume);
   const fresh = Boolean(options.fresh);
   if (resumeLast && fresh) {
     throw new Error("Choose either --resume/--resume-last or --fresh.");
   }
+  // A resumed thread already saw the preamble on its first turn.
+  const prompt = options["no-preamble"] || resumeLast ? userPrompt : withDelegatePreamble(workspaceRoot, userPrompt);
   const write = Boolean(options.write);
   const taskMetadata = buildTaskRunMetadata({
-    prompt,
+    prompt: userPrompt,
     resumeLast
   });
 
@@ -814,6 +838,7 @@ async function handleTask(argv) {
       prompt,
       write,
       resumeLast,
+      outputFile,
       jobId: job.id
     });
     const { payload } = enqueueBackgroundTask(cwd, job, request);
@@ -833,6 +858,7 @@ async function handleTask(argv) {
         prompt,
         write,
         resumeLast,
+        outputFile,
         jobId: job.id,
         onProgress: progress
       }),
