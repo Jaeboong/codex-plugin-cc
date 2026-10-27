@@ -1,6 +1,6 @@
 ---
 description: Delegate investigation, an explicit fix request, or follow-up rescue work to Codex as a Claude background task
-argument-hint: "[--resume|--fresh] [--read-only] [--sandbox <read-only|workspace-write|danger-full-access>] [--model <model|spark>] [--effort <none|minimal|low|medium|high|xhigh>] [--output <file>] [--no-preamble] [what Codex should investigate, solve, or continue]"
+argument-hint: "[--resume|--fresh] [--read-only] [--sandbox <read-only|workspace-write|danger-full-access>] [--model <model|spark>] [--effort <none|minimal|low|medium|high|xhigh|max|ultra>] [--output <file>] [--no-preamble] [what Codex should investigate, solve, or continue]"
 allowed-tools: Bash(node:*), AskUserQuestion
 ---
 
