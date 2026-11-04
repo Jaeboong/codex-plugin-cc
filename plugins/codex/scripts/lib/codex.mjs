@@ -66,6 +66,7 @@ function buildThreadParams(cwd, options = {}) {
     model: options.model ?? null,
     approvalPolicy: options.approvalPolicy ?? "never",
     sandbox: options.sandbox ?? null,
+    serviceTier: options.serviceTier ?? null,
     serviceName: SERVICE_NAME,
     ephemeral: options.ephemeral ?? true
   };
@@ -78,7 +79,8 @@ function buildResumeParams(threadId, cwd, options = {}) {
     cwd,
     model: options.model ?? null,
     approvalPolicy: options.approvalPolicy ?? "never",
-    sandbox: options.sandbox ?? null
+    sandbox: options.sandbox ?? null,
+    serviceTier: options.serviceTier ?? null
   };
 }
 
@@ -1036,6 +1038,7 @@ export async function runAppServerReview(cwd, options = {}) {
     const thread = await startThread(client, cwd, {
       model: options.model,
       sandbox: options.sandbox ?? null,
+      serviceTier: options.serviceTier,
       ephemeral: true,
       threadName: options.threadName
     });
@@ -1135,6 +1138,7 @@ export async function runAppServerTurn(cwd, options = {}) {
       const response = await resumeThread(client, options.resumeThreadId, cwd, {
         model: options.model,
         sandbox: options.sandbox,
+        serviceTier: options.serviceTier,
         ephemeral: false
       });
       threadId = response.thread.id;
@@ -1143,6 +1147,7 @@ export async function runAppServerTurn(cwd, options = {}) {
       const response = await startThread(client, cwd, {
         model: options.model,
         sandbox: options.sandbox,
+        serviceTier: options.serviceTier,
         ephemeral: options.persistThread ? false : true,
         threadName: options.persistThread ? options.threadName : options.threadName ?? null
       });

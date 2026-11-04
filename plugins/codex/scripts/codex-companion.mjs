@@ -71,6 +71,8 @@ const DEFAULT_STATUS_POLL_INTERVAL_MS = 2000;
 const VALID_REASONING_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
 const VALID_SANDBOX_MODES = new Set(["read-only", "workspace-write", "danger-full-access"]);
 const MODEL_ALIASES = new Map([["spark", "gpt-5.3-codex-spark"]]);
+// Codex lists Fast mode as the "priority" service tier (2x speed, higher usage).
+const FAST_SERVICE_TIER = "priority";
 const STOP_REVIEW_TASK_MARKER = "Run a stop-gate review of the previous Claude turn.";
 
 function printUsage() {
@@ -78,9 +80,9 @@ function printUsage() {
     [
       "Usage:",
       "  node scripts/codex-companion.mjs setup [--enable-review-gate|--disable-review-gate] [--json]",
-      "  node scripts/codex-companion.mjs review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>]",
-      "  node scripts/codex-companion.mjs adversarial-review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>] [focus text]",
-      "  node scripts/codex-companion.mjs task [--background] [--write] [--sandbox <read-only|workspace-write|danger-full-access>] [--resume-last|--resume|--fresh] [--model <model|spark>] [--effort <none|minimal|low|medium|high|xhigh|max|ultra>] [--output <file>] [--no-preamble] [prompt]",
+      "  node scripts/codex-companion.mjs review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>] [--fast]",
+      "  node scripts/codex-companion.mjs adversarial-review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>] [--fast] [focus text]",
+      "  node scripts/codex-companion.mjs task [--background] [--write] [--sandbox <read-only|workspace-write|danger-full-access>] [--resume-last|--resume|--fresh] [--model <model|spark>] [--effort <none|minimal|low|medium|high|xhigh|max|ultra>] [--fast] [--output <file>] [--no-preamble] [prompt]",
       "  node scripts/codex-companion.mjs transfer [--source <claude-jsonl>] [--json]",
       "  node scripts/codex-companion.mjs status [job-id] [--all] [--json]",
       "  node scripts/codex-companion.mjs result [job-id] [--json]",
@@ -383,6 +385,7 @@ async function executeReviewRun(request) {
     const result = await runAppServerReview(request.cwd, {
       target: reviewTarget,
       model: request.model,
+      serviceTier: request.serviceTier,
       onProgress: request.onProgress
     });
     const payload = {
@@ -424,6 +427,7 @@ async function executeReviewRun(request) {
   const result = await runAppServerTurn(context.repoRoot, {
     prompt,
     model: request.model,
+    serviceTier: request.serviceTier,
     outputSchema: readOutputSchema(REVIEW_SCHEMA),
     onProgress: request.onProgress
   });
@@ -500,6 +504,7 @@ async function executeTaskRun(request) {
     defaultPrompt: resumeThreadId ? DEFAULT_CONTINUE_PROMPT : "",
     model: request.model,
     effort: request.effort,
+    serviceTier: request.serviceTier,
     sandbox: request.sandbox ?? null,
     directAppServer: true,
     onProgress: request.onProgress,
@@ -620,11 +625,12 @@ function buildTaskJob(workspaceRoot, taskMetadata, write) {
   });
 }
 
-function buildTaskRequest({ cwd, model, effort, sandbox, prompt, write, resumeLast, outputFile, jobId }) {
+function buildTaskRequest({ cwd, model, effort, serviceTier, sandbox, prompt, write, resumeLast, outputFile, jobId }) {
   return {
     cwd,
     model,
     effort,
+    serviceTier,
     sandbox,
     prompt,
     write,
@@ -748,7 +754,7 @@ function enqueueBackgroundTask(cwd, job, request) {
 async function handleReviewCommand(argv, config) {
   const { options, positionals } = parseCommandInput(argv, {
     valueOptions: ["base", "scope", "model", "cwd"],
-    booleanOptions: ["json", "background", "wait"],
+    booleanOptions: ["json", "background", "wait", "fast"],
     aliasMap: {
       m: "model"
     }
@@ -780,6 +786,7 @@ async function handleReviewCommand(argv, config) {
         base: options.base,
         scope: options.scope,
         model: options.model,
+        serviceTier: options.fast ? FAST_SERVICE_TIER : null,
         focusText,
         reviewName: config.reviewName,
         onProgress: progress
@@ -798,7 +805,7 @@ async function handleReview(argv) {
 async function handleTask(argv) {
   const { options, positionals } = parseCommandInput(argv, {
     valueOptions: ["model", "effort", "sandbox", "cwd", "prompt-file", "output"],
-    booleanOptions: ["json", "write", "resume-last", "resume", "fresh", "background", "no-preamble"],
+    booleanOptions: ["json", "write", "resume-last", "resume", "fresh", "background", "no-preamble", "fast"],
     aliasMap: {
       m: "model"
     }
@@ -808,6 +815,7 @@ async function handleTask(argv) {
   const workspaceRoot = resolveCommandWorkspace(options);
   const model = normalizeRequestedModel(options.model);
   const effort = normalizeReasoningEffort(options.effort);
+  const serviceTier = options.fast ? FAST_SERVICE_TIER : null;
   const sandbox = normalizeSandboxMode(options.sandbox);
   const userPrompt = readTaskPrompt(cwd, options, positionals);
   const outputFile = options.output ? path.resolve(cwd, options.output) : null;
@@ -834,6 +842,7 @@ async function handleTask(argv) {
       cwd,
       model,
       effort,
+      serviceTier,
       sandbox,
       prompt,
       write,
@@ -854,6 +863,7 @@ async function handleTask(argv) {
         cwd,
         model,
         effort,
+        serviceTier,
         sandbox,
         prompt,
         write,

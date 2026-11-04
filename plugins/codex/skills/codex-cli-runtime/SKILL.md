@@ -10,7 +10,7 @@ Run Codex through the companion `task` command as a Claude Code background Bash 
 
 ```typescript
 Bash({
-  command: `node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" task --write [--resume-last] [--sandbox <mode>] [--model <model>] [--effort <effort>] <<'CODEX_TASK'
+  command: `node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" task --write [--resume-last] [--sandbox <mode>] [--model <model>] [--effort <effort>] [--fast] <<'CODEX_TASK'
 <task text>
 CODEX_TASK`,
   description: "Codex: <short task label>",
@@ -29,7 +29,7 @@ Rules:
 - Send the task text on stdin with a quoted heredoc, always. Without stdin input the process can wait on an open stdin forever.
 - Add `--write` unless the work must not edit files; then leave it out and say "Do not modify any files." in the task text.
 - Leave `--sandbox` unset unless the user asks; Codex then uses the sandbox from the user's Codex config.
-- Leave `--model` and `--effort` unset unless the user asks. Map `spark` to `--model gpt-5.3-codex-spark`. `--effort` accepts `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra`.
+- Leave `--model`, `--effort`, and `--fast` unset unless the user asks. `--fast` (Fast mode) trades higher usage for about 2x speed. Map `spark` to `--model gpt-5.3-codex-spark`. `--effort` accepts `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra`.
 - If the repository root has `.codex-delegate.md`, its text is prepended to every new task prompt automatically; do not repeat those rules in the task text. `--no-preamble` skips it.
 - `--output <file>` also saves Codex's final answer alone to that file (like `codex exec -o`). Pick a path no other agent writes to.
 - Use `--resume-last` to continue the latest Codex task thread in this repository ("keep going", "apply the top fix", "dig deeper").

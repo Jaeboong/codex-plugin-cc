@@ -829,6 +829,14 @@ test("task forwards model selection and reasoning effort to app-server turn/star
   const fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
   assert.equal(fakeState.lastTurnStart.model, "gpt-5.3-codex-spark");
   assert.equal(fakeState.lastTurnStart.effort, "low");
+  assert.equal(fakeState.lastThreadStart.serviceTier, null);
+
+  const fast = run("node", [SCRIPT, "task", "--fast", "diagnose the failing test"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+  assert.equal(fast.status, 0, fast.stderr);
+  assert.equal(JSON.parse(fs.readFileSync(statePath, "utf8")).lastThreadStart.serviceTier, "priority");
 });
 
 test("task logs reasoning summaries and assistant messages to the job log", () => {
