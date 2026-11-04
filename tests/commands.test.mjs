@@ -102,7 +102,8 @@ test("rescue command runs Codex as a Claude background task", () => {
   assert.match(rescue, /--resume\|--fresh/);
   assert.match(rescue, /--sandbox <read-only\|workspace-write\|danger-full-access>/);
   assert.match(rescue, /--model <model\|spark>/);
-  assert.match(rescue, /--effort <none\|minimal\|low\|medium\|high\|xhigh>/);
+  assert.match(rescue, /--effort <none\|minimal\|low\|medium\|high\|xhigh\|max\|ultra>\] \[--fast\]/);
+  assert.match(rescue, /Pass `--sandbox`, `--model`, `--effort`, `--fast`/);
   assert.match(rescue, /task-resume-candidate --json/);
   assert.match(rescue, /Continue current Codex thread/);
   assert.match(rescue, /Start a new Codex thread/);
@@ -114,7 +115,8 @@ test("rescue command runs Codex as a Claude background task", () => {
   assert.match(runtimeSkill, /Do not pass `--background` to `task`/);
   assert.match(runtimeSkill, /quoted heredoc/);
   assert.match(runtimeSkill, /Leave `--sandbox` unset unless the user asks/);
-  assert.match(runtimeSkill, /`--effort` accepts `none`, `minimal`, `low`, `medium`, `high`, `xhigh`/);
+  assert.match(runtimeSkill, /`--effort` accepts `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra`/);
+  assert.match(runtimeSkill, /Leave `--model`, `--effort`, and `--fast` unset unless the user asks/);
   assert.match(runtimeSkill, /gpt-5-4-prompting/);
   assert.doesNotMatch(readme, /codex:codex-rescue/);
   assert.match(readme, /if you do not pass `--model` or `--effort`, Codex chooses its own defaults/i);

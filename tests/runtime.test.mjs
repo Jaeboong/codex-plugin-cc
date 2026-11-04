@@ -47,7 +47,7 @@ test("setup reports ready when fake codex is installed and authenticated", () =>
 test("setup is ready without npm when Codex is already installed and authenticated", () => {
   const binDir = makeTempDir();
   installFakeCodex(binDir);
-  fs.symlinkSync(process.execPath, path.join(binDir, "node"));
+  fs.symlinkSync(process.execPath, path.join(binDir, process.platform === "win32" ? "node.exe" : "node"));
 
   const result = run("node", [SCRIPT, "setup", "--json"], {
     cwd: ROOT,
@@ -220,6 +220,7 @@ test("transfer delegates the current Claude session directly to native import", 
     env: {
       ...buildEnv(binDir),
       HOME: home,
+      USERPROFILE: home,
       CODEX_HOME: path.join(home, ".codex"),
       CODEX_COMPANION_TRANSCRIPT_PATH: sourcePath
     }
@@ -265,6 +266,7 @@ test("transfer reports an actionable upgrade error when native import is unsuppo
     env: {
       ...buildEnv(binDir),
       HOME: home,
+      USERPROFILE: home,
       CODEX_HOME: path.join(home, ".codex")
     }
   });
@@ -295,6 +297,7 @@ test("transfer fails visibly when native import completes without a ledger recor
     env: {
       ...buildEnv(binDir),
       HOME: home,
+      USERPROFILE: home,
       CODEX_HOME: path.join(home, ".codex")
     }
   });
@@ -1792,7 +1795,7 @@ test("cancel with a job id can still target an active job from another Claude se
   assert.equal(state.jobs[0].status, "cancelled");
 });
 
-test("cancel sends turn interrupt to the shared app-server before killing a brokered task", async () => {
+test("cancel kills a background task's private app-server tree without a shared-broker interrupt", async () => {
   const repo = makeTempDir();
   const binDir = makeTempDir();
   const fakeStatePath = path.join(binDir, "fake-codex-state.json");
@@ -1831,19 +1834,22 @@ test("cancel sends turn interrupt to the shared app-server before killing a brok
   assert.equal(cancelResult.status, 0, cancelResult.stderr);
   const cancelPayload = JSON.parse(cancelResult.stdout);
   assert.equal(cancelPayload.status, "cancelled");
-  assert.equal(cancelPayload.turnInterruptAttempted, true);
-  assert.equal(cancelPayload.turnInterrupted, true);
-
-  await waitFor(() => {
-    const fakeState = JSON.parse(fs.readFileSync(fakeStatePath, "utf8"));
-    return fakeState.lastInterrupt ?? null;
-  });
+  // Background tasks own a private app-server, so cancel stops the whole process tree instead of
+  // asking a shared broker to interrupt the turn.
+  assert.equal(cancelPayload.turnInterruptAttempted, false);
+  assert.equal(cancelPayload.turnInterrupted, false);
+  assert.ok(Number.isInteger(runningJob.pid) && runningJob.pid > 0);
+  assert.equal(cancelPayload.pid, runningJob.pid);
+  assert.equal(cancelPayload.processStillRunning, false);
+  assert.throws(() => process.kill(runningJob.pid, 0));
 
   const fakeState = JSON.parse(fs.readFileSync(fakeStatePath, "utf8"));
-  assert.deepEqual(fakeState.lastInterrupt, {
-    threadId: runningJob.threadId,
-    turnId: runningJob.turnId
-  });
+  assert.equal(fakeState.lastInterrupt ?? null, null);
+  const cancelledJob = JSON.parse(fs.readFileSync(path.join(stateDir, "state.json"), "utf8")).jobs.find(
+    (candidate) => candidate.id === jobId
+  );
+  assert.equal(cancelledJob.status, "cancelled");
+  assert.equal(cancelledJob.pid, null);
 
   const cleanup = run("node", [SESSION_HOOK, "SessionEnd"], {
     cwd: repo,

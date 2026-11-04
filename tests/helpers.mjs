@@ -4,6 +4,12 @@ import path from "node:path";
 import process from "node:process";
 import { spawnSync } from "node:child_process";
 
+// Running the suite inside a Claude Code session leaks that session's plugin env into every child,
+// which scopes job listings to the host session and points state/env writes at the real plugin.
+for (const name of ["CODEX_COMPANION_SESSION_ID", "CODEX_COMPANION_TRANSCRIPT_PATH", "CLAUDE_PLUGIN_DATA", "CLAUDE_ENV_FILE"]) {
+  delete process.env[name];
+}
+
 export function makeTempDir(prefix = "codex-plugin-test-") {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
